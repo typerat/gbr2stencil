@@ -138,6 +138,8 @@ func main() {
 			continue
 		}
 
+		e.pos = optimizePath(e.pos)
+
 		toolSwitchMessage := fmt.Sprintf(switchTool, e.size)
 		output.Write([]byte(toolSwitchMessage))
 		for _, p := range e.pos {
@@ -311,4 +313,23 @@ func categorize(a aperture) {
 		}
 	}
 	useDrill.pos = append(useDrill.pos, a.pos...)
+}
+
+func optimizePath(in []coordinates) []coordinates {
+	for i := 0; i < len(in)-1; i++ {
+		minDist := 1e18
+		current := &in[i]
+		next := &in[i+1]
+		nearest := &in[i+1]
+		for j := i + 1; j < len(in); j++ {
+			b := &in[j]
+			dist := math.Pow(current.x-b.x, 2) + math.Pow(current.y-b.y, 2)
+			if dist < minDist {
+				minDist = dist
+				nearest = b
+			}
+		}
+		*next, *nearest = *nearest, *next
+	}
+	return in
 }
