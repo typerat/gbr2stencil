@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	iterationCount  = 100
 	outputExtension = ".Stencil.ngc"
 	outputHeader    = `G94 ( Millimeters per minute feed rate. )
 G21 ( Units == Millimeters. )
@@ -327,24 +328,38 @@ func categorize(a aperture) {
 }
 
 func optimizePath(in []coordinates) []coordinates {
-	rand.Seed(time.Now().UnixNano())
-	i := rand.Intn(len(in))
-	in[0], in[i] = in[i], in[0]
+	out := []coordinates{}
+	outDist := 1e18
 
-	for i := 0; i < len(in)-2; i++ {
-		minDist := 1e18
-		current := &in[i]
-		next := &in[i+1]
-		nearest := &in[i+1]
-		for j := i + 1; j < len(in); j++ {
-			b := &in[j]
-			dist := math.Pow(current.x-b.x, 2) + math.Pow(current.y-b.y, 2)
-			if dist < minDist {
-				minDist = dist
-				nearest = b
+	for iteration := 0; iteration < iterationCount; iteration++ {
+
+		rand.Seed(time.Now().UnixNano())
+		i := rand.Intn(len(in))
+		in[0], in[i] = in[i], in[0]
+
+		dist := 0.0
+
+		for i := 0; i < len(in)-2; i++ {
+			minDist := 1e18
+			current := &in[i]
+			next := &in[i+1]
+			nearest := &in[i+1]
+			for j := i + 1; j < len(in); j++ {
+				b := &in[j]
+				dist := math.Pow(current.x-b.x, 2) + math.Pow(current.y-b.y, 2)
+				if dist < minDist {
+					minDist = dist
+					nearest = b
+				}
 			}
+			*next, *nearest = *nearest, *next
+			dist += minDist
 		}
-		*next, *nearest = *nearest, *next
+
+		if dist < outDist {
+			out = in
+			outDist = dist
+		}
 	}
-	return in
+	return out
 }
