@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -90,10 +92,11 @@ var (
 		drill{size: .700},
 		drill{size: .800},
 		drill{size: .900},
-		drill{size: .1000},
+		drill{size: 1.000},
 		drill{size: 1.100},
 		drill{size: 1.200},
 	}
+	bottom bool
 )
 
 func main() {
@@ -105,6 +108,13 @@ func main() {
 
 	inputFile := os.Args[1]
 	outputFile := calcOutput(inputFile)
+
+	if bottom {
+		fmt.Println("creating stencil for bottom side")
+	} else {
+		fmt.Println("creating stencil for top side")
+	}
+	fmt.Println("writing to", outputFile)
 
 	input, err := os.Open(inputFile)
 	if err != nil {
@@ -154,6 +164,7 @@ func main() {
 }
 
 func calcOutput(in string) string {
+	bottom = strings.Contains(in, "-B.")
 	return strings.Split(in, ".")[0] + outputExtension
 }
 
@@ -167,18 +178,14 @@ func parseLine(line string) {
 		switch {
 		case strings.HasPrefix(line, "X"):
 			pos := parseCoordinates(line)
-			fmt.Println("    ", pos)
 			minX = math.Min(minX, pos.x)
 			maxX = math.Max(maxX, pos.x)
 			minY = math.Min(minY, pos.y)
 			maxY = math.Max(maxY, pos.y)
 		case strings.HasPrefix(line, "G37*"):
-			fmt.Println(minX, maxX)
-			fmt.Println(minY, maxY)
 			x := (minX + maxX) / 2
 			y := (minY + maxY) / 2
 			pos := coordinates{x: x, y: y}
-			fmt.Println(pos)
 			currentAperture.pos = append(currentAperture.pos, pos)
 
 			parseContour = false
@@ -298,6 +305,10 @@ func parseCoordinates(line string) coordinates {
 		y *= 25.4
 	}
 
+	if bottom {
+		x = -x
+	}
+
 	return coordinates{x: x / decimalDivider, y: y / decimalDivider}
 }
 
@@ -316,7 +327,11 @@ func categorize(a aperture) {
 }
 
 func optimizePath(in []coordinates) []coordinates {
-	for i := 0; i < len(in)-1; i++ {
+	rand.Seed(time.Now().UnixNano())
+	i := rand.Intn(len(in))
+	in[0], in[i] = in[i], in[0]
+
+	for i := 0; i < len(in)-2; i++ {
 		minDist := 1e18
 		current := &in[i]
 		next := &in[i+1]
