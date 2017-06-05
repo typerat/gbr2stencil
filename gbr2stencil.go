@@ -24,11 +24,11 @@ S10000 ( RPM spindle speed. )
 G64 P0.01000 ( set maximum deviation from commanded toolpath )
 
 G04 P0 ( dwell for no time -- G64 should not smooth over this point )
-G00 Z16.50000 ( retract )
+G53 G00 Z-2.0 ( retract )
 `
 	drillDown = `G00 Z2.00000
-G01 Z%f F60.00000
-G01 Z0.50000 F60.00000
+G01 Z%f F100.00000
+G01 Z0.50000 F100.00000
 G00 Z2.00000 ( retract )
 `
 	switchTool = `
@@ -37,7 +37,8 @@ M0      (Temporary machine stop.)
 M3      (Spindle on clockwise.)
 `
 
-	retract = `G00 Z16.5
+	retract = `G53 G00 Z-2.0
+G53 G00 X-189.0
 M5      (Spindle stop.)
 `
 )
