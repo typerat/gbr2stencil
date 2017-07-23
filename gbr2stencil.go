@@ -35,11 +35,11 @@ G00 Z2.00000 ( retract )
 (MSG, Change tool bit to drill size %f mm)
 M0      (Temporary machine stop.)
 M3      (Spindle on clockwise.)
+G04 P2.5 ( spin-up delay )
 `
 
-	retract = `G53 G00 Z-2.0
-G53 G00 X-189.0
-M5      (Spindle stop.)
+	retract = `M5      (Spindle stop.)
+G53 G00 Z0.0
 `
 )
 
