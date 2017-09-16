@@ -24,18 +24,17 @@ S10000 ( RPM spindle speed. )
 G64 P0.01000 ( set maximum deviation from commanded toolpath )
 
 G04 P0 ( dwell for no time -- G64 should not smooth over this point )
-G53 G00 Z-2.0 ( retract )
+G53 G00 Z0.0 ( retract )
 `
-	drillDown = `G00 Z2.00000
-G01 Z%f F100.00000
-G01 Z0.50000 F100.00000
-G00 Z2.00000 ( retract )
+	drillDown = `G00 Z1.00000
+G01 Z%f F200.00000
+G01 Z1.00000 F200.00000
+G00 Z5.00000 ( retract )
 `
 	switchTool = `
 (MSG, Change tool bit to drill size %f mm)
 M0      (Temporary machine stop.)
 M3      (Spindle on clockwise.)
-G04 P2.5 ( spin-up delay )
 `
 
 	retract = `M5      (Spindle stop.)
@@ -171,24 +170,22 @@ func calcOutput(in string) string {
 }
 
 var (
-	parseContour           = false
-	minX, maxX, minY, maxY float64
+	parseContour = false
+	points       []coordinates
 )
 
 func parseLine(line string) {
 	if parseContour {
 		switch {
 		case strings.HasPrefix(line, "X"):
-			pos := parseCoordinates(line)
-			minX = math.Min(minX, pos.x)
-			maxX = math.Max(maxX, pos.x)
-			minY = math.Min(minY, pos.y)
-			maxY = math.Max(maxY, pos.y)
+			point := parseCoordinates(line)
+			points = append(points, point)
 		case strings.HasPrefix(line, "G37*"):
-			x := (minX + maxX) / 2
-			y := (minY + maxY) / 2
-			pos := coordinates{x: x, y: y}
-			currentAperture.pos = append(currentAperture.pos, pos)
+			pos := getCenter(points)
+			size := getSize(points)
+
+			a := aperture{size: size, pos: []coordinates{pos}}
+			apertures = append(apertures, a)
 
 			parseContour = false
 		}
@@ -208,12 +205,43 @@ func parseLine(line string) {
 	case strings.HasPrefix(line, "G04 Gerber Fmt "):
 		parseFormat(line)
 	case strings.HasPrefix(line, "G36*"):
-		minX = 1e6
-		maxX = -1e6
-		minY = 1e6
-		maxY = -1e6
+		points = []coordinates{}
 		parseContour = true
 	}
+}
+
+func getCenter(in []coordinates) coordinates {
+	minX := math.Inf(1)
+	maxX := math.Inf(-1)
+	minY := math.Inf(1)
+	maxY := math.Inf(-1)
+
+	for _, p := range in {
+		minX = math.Min(minX, p.x)
+		maxX = math.Max(maxX, p.x)
+		minY = math.Min(minY, p.y)
+		maxY = math.Max(maxY, p.y)
+	}
+
+	x := (minX + maxX) / 2
+	y := (minY + maxY) / 2
+
+	return coordinates{x, y}
+}
+
+func getSize(in []coordinates) float64 {
+	// average distances between all points
+	distance := 0.0
+	for _, p := range in {
+		for _, q := range in {
+			distance += math.Sqrt(math.Pow(p.x-q.x, 2) + math.Pow(p.y-q.y, 2))
+		}
+	}
+
+	distance /= math.Pow(float64(len(in)), 2)
+
+	// correction factor for approximate area calculation
+	return distance * 1.2
 }
 
 func parseFormat(line string) {
