@@ -1,22 +1,19 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"math"
 	"math/rand"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	iterationCount  = 100
-	outputExtension = ".Stencil.ngc"
-	outputHeader    = `G94 ( Millimeters per minute feed rate. )
+	maxIterationCount = 1000
+	outputExtension   = ".Stencil.ngc"
+	outputHeader      = `G94 ( Millimeters per minute feed rate. )
 G21 ( Units == Millimeters. )
 
 G90 ( Absolute coordinates. )
@@ -117,229 +114,18 @@ func main() {
 	}
 	fmt.Println("writing to", outputFile)
 
-	input, err := os.Open(inputFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer input.Close()
-
-	scanner := bufio.NewScanner(input)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		parseLine(line)
-	}
-
-	sort.Sort(BySize(apertures))
-
-	output, err := os.Create(outputFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer output.Close()
-
-	output.Write([]byte(outputHeader))
+	parseInput(inputFile)
 
 	for _, a := range apertures {
 		categorize(a)
 	}
 
-	for _, e := range drills {
-		if len(e.pos) < 1 {
-			continue
-		}
-
-		e.pos = optimizePath(e.pos)
-
-		toolSwitchMessage := fmt.Sprintf(switchTool, e.size)
-		output.Write([]byte(toolSwitchMessage))
-		for _, p := range e.pos {
-			line := fmt.Sprintf("G00 X%f Y%f\n", p.x, p.y)
-			output.Write([]byte(line))
-			drillDepth := -(e.size/2 + .5)
-			drillCommand := fmt.Sprintf(drillDown, drillDepth)
-			output.Write([]byte(drillCommand))
-		}
-		output.Write([]byte(retract))
-	}
+	exportGCode(outputFile)
 }
 
 func calcOutput(in string) string {
 	bottom = strings.Contains(in, "-B.")
 	return strings.Split(in, ".")[0] + outputExtension
-}
-
-var (
-	parseContour = false
-	points       []coordinates
-)
-
-func parseLine(line string) {
-	if parseContour {
-		switch {
-		case strings.HasPrefix(line, "X"):
-			point := parseCoordinates(line)
-			points = append(points, point)
-		case strings.HasPrefix(line, "G37*"):
-			pos := getCenter(points)
-			size := getSize(points)
-
-			a := aperture{size: size, pos: []coordinates{pos}}
-			apertures = append(apertures, a)
-
-			parseContour = false
-		}
-		return
-	}
-
-	switch {
-	case strings.HasPrefix(line, "%AD"):
-		a := parseAperture(line)
-		apertures = append(apertures, a)
-	case strings.HasPrefix(line, "D"):
-		name := strings.TrimSuffix(line, "*")
-		currentAperture = apertureByName(name)
-	case strings.HasPrefix(line, "X"):
-		pos := parseCoordinates(line)
-		currentAperture.pos = append(currentAperture.pos, pos)
-	case strings.HasPrefix(line, "G04 Gerber Fmt "):
-		parseFormat(line)
-	case strings.HasPrefix(line, "G36*"):
-		points = []coordinates{}
-		parseContour = true
-	}
-}
-
-func getCenter(in []coordinates) coordinates {
-	minX := math.Inf(1)
-	maxX := math.Inf(-1)
-	minY := math.Inf(1)
-	maxY := math.Inf(-1)
-
-	for _, p := range in {
-		minX = math.Min(minX, p.x)
-		maxX = math.Max(maxX, p.x)
-		minY = math.Min(minY, p.y)
-		maxY = math.Max(maxY, p.y)
-	}
-
-	x := (minX + maxX) / 2
-	y := (minY + maxY) / 2
-
-	return coordinates{x, y}
-}
-
-func getSize(in []coordinates) float64 {
-	// average distances between all points
-	distance := 0.0
-	for _, p := range in {
-		for _, q := range in {
-			distance += math.Sqrt(math.Pow(p.x-q.x, 2) + math.Pow(p.y-q.y, 2))
-		}
-	}
-
-	distance /= math.Pow(float64(len(in)), 2)
-
-	// correction factor for approximate area calculation
-	return distance * 1.2
-}
-
-func parseFormat(line string) {
-	line = strings.TrimPrefix(line, "G04 Gerber Fmt ")
-	if strings.HasSuffix(line, ", Leading zero omitted, Abs format (unit mm)*") {
-		units = "metric"
-		line = strings.TrimSuffix(line, ", Leading zero omitted, Abs format (unit mm)*")
-	}
-
-	format := strings.Split(line, ".")
-	i, err := strconv.Atoi(format[1])
-	if err != nil {
-		log.Fatal("incorrect number format")
-	}
-
-	decimalDivider = math.Pow10(i)
-}
-
-func apertureByName(name string) *aperture {
-	for i, e := range apertures {
-		if e.name == name {
-			return &apertures[i]
-		}
-	}
-	log.Fatal("aperture not found")
-	return nil
-}
-
-func parseAperture(line string) aperture {
-	parts := strings.Split(line, ",")
-	// get name and shape
-	name := strings.TrimPrefix(parts[0], "%AD")
-	shape := name[len(name)-1]
-	name = name[:len(name)-1]
-
-	// get size
-	dimensions := strings.Split(strings.TrimSuffix(parts[1], "*%"), "X")
-	size := 0.0
-
-	switch shape {
-	case 'C':
-		d, err := strconv.ParseFloat(dimensions[0], 64)
-		if err != nil {
-			log.Fatal(err, line)
-		}
-		size = d
-
-	case 'O':
-		fallthrough
-	case 'R':
-		x, err := strconv.ParseFloat(dimensions[0], 64)
-		if err != nil {
-			log.Fatal(err, line)
-		}
-
-		y, err := strconv.ParseFloat(dimensions[1], 64)
-		if err != nil {
-			log.Fatal(err, line)
-		}
-		// size = math.Min(x, y)
-		size = math.Sqrt(x * y)
-
-	default:
-		log.Fatal("unknown aperture shape: ", line)
-	}
-
-	if units == "imperial" {
-		size *= 25.4
-	}
-
-	return aperture{name: name, size: size}
-}
-
-func parseCoordinates(line string) coordinates {
-	line = strings.Split(line, "D")[0]
-	line = strings.TrimPrefix(line, "X")
-	pos := strings.Split(line, "Y")
-
-	x, err := strconv.ParseFloat(pos[0], 64)
-	if err != nil {
-		log.Fatal(err, line)
-	}
-
-	y, err := strconv.ParseFloat(pos[1], 64)
-	if err != nil {
-		log.Fatal(err, line)
-	}
-
-	if units == "imperial" {
-		x *= 25.4
-		y *= 25.4
-	}
-
-	if bottom {
-		x = -x
-	}
-
-	return coordinates{x: x / decimalDivider, y: y / decimalDivider}
 }
 
 func categorize(a aperture) {
@@ -357,13 +143,26 @@ func categorize(a aperture) {
 }
 
 func optimizePath(in []coordinates) []coordinates {
+	rand.Seed(time.Now().UnixNano())
+
 	out := []coordinates{}
 	outDist := 1e18
 
-	for iteration := 0; iteration < iterationCount; iteration++ {
+	iterationCount := maxIterationCount
+	if len(in) < maxIterationCount {
+		iterationCount = len(in)
+	}
 
-		rand.Seed(time.Now().UnixNano())
-		i := rand.Intn(len(in))
+	// for iteration := 0; iteration < iterationCount; iteration++ {
+
+	for iteration := 0; iteration < iterationCount; iteration++ {
+		i := iteration
+
+		// try random start points
+		if len(in) > maxIterationCount {
+			i = rand.Intn(len(in))
+		}
+
 		in[0], in[i] = in[i], in[0]
 
 		dist := 0.0
